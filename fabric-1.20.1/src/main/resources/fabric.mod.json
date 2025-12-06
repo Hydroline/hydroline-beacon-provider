@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "beaconprovider",
+  "version": "${version}",
+  "name": "Hydroline Beacon Provider",
+  "description": "Bridge loader for deploying Hydroline Beacon Provider on Fabric.",
+  "authors": ["Hydroline"],
+  "contact": {
+    "homepage": "https://example.com",
+    "sources": "https://github.com/Hydroline/hydroline-beacon-provider"
+  },
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "com.hydroline.beacon.provider.fabric.BeaconProviderFabric"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.15.10",
+    "fabric-api": ">=0.92.1+1.20.1",
+    "minecraft": "1.20.1",
+    "java": ">=17"
+  },
+  "custom": {
+    "modmenu": {
+      "badges": ["library"]
+    }
+  }
+}

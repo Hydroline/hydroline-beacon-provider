@@ -1,0 +1,31 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="MIT"
+issueTrackerURL="https://github.com/Hydroline/hydroline-beacon-provider/issues"
+showAsResourcePack=false
+
+[[mods]]
+modId="beaconprovider"
+version="${version}"
+displayName="Hydroline Beacon Provider"
+updateJSONURL=""
+displayURL="https://github.com/Hydroline/hydroline-beacon-provider"
+credits=""
+authors="Hydroline"
+description='''
+Bridge mod entrypoint for Hydroline Beacon Provider on Forge.
+'''
+
+[[dependencies.beaconprovider]]
+modId="forge"
+mandatory=true
+versionRange="[47,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.beaconprovider]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.20.1,1.20.2)"
+ordering="NONE"
+side="BOTH"
