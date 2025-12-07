@@ -1,8 +1,18 @@
+import org.gradle.api.GradleException
 import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.jvm.toolchain.JavaLanguageVersion
 
 plugins {
     `java-library`
+}
+
+val architecturyVersion: String by rootProject
+val architecturyJarFile = rootProject.layout.projectDirectory.file("checkouts/architectury-$architecturyVersion.jar")
+val downloadArchitecturyJar = rootProject.tasks.named("downloadArchitecturyJar")
+val mtrCommonJar = rootProject.layout.projectDirectory.file("libs/mtr3/MTR-forge-1.20.1-3.2.2-hotfix-2-slim.jar").also {
+    if (!it.asFile.exists()) {
+        throw GradleException("请把 MTR-forge-1.20.1-3.2.2-hotfix-2-slim.jar 放到 libs/mtr3/ 以供 common 编译")
+    }
 }
 
 repositories {
@@ -11,6 +21,8 @@ repositories {
 
 dependencies {
     api("org.slf4j:slf4j-api:2.0.13")
+    compileOnly(files(architecturyJarFile).builtBy(downloadArchitecturyJar))
+    compileOnly(files(mtrCommonJar))
 }
 
 java {

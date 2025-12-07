@@ -1,5 +1,8 @@
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 import net.fabricmc.loom.api.LoomGradleExtensionAPI
+import net.fabricmc.loom.task.RemapJarTask
 import org.gradle.api.Project
+import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.api.tasks.SourceSetContainer
 import org.gradle.api.tasks.bundling.Jar
 import org.gradle.api.tasks.compile.JavaCompile
@@ -9,10 +12,39 @@ import org.gradle.kotlin.dsl.getByType
 import org.gradle.kotlin.dsl.named
 import org.gradle.language.jvm.tasks.ProcessResources
 import kotlin.math.max
+import org.gradle.api.file.RegularFile
+import org.gradle.api.GradleException
 
 plugins {
     id("dev.architectury.loom") version "1.6.422" apply false
+    id("com.github.johnrengelman.shadow") version "8.1.1" apply false
     id("base")
+}
+
+val architecturyVersion: String by project
+val architecturyRelocationBase = "com.hydroline.beacon.shaded.architectury"
+val checkoutsDir = layout.projectDirectory.dir("checkouts")
+val architecturyJarFileName = "architectury-$architecturyVersion.jar"
+val architecturyJar = layout.projectDirectory.file("checkouts/$architecturyJarFileName")
+val architecturyJarBaseUrl = "https://maven.architectury.dev/dev/architectury/architectury"
+val downloadArchitecturyJar = tasks.register("downloadArchitecturyJar") {
+    outputs.file(architecturyJar)
+    doLast {
+        val targetFile = architecturyJar.asFile
+        checkoutsDir.asFile.mkdirs()
+        if (!targetFile.exists() || targetFile.length() == 0L) {
+            val url = "$architecturyJarBaseUrl/$architecturyVersion/$architecturyJarFileName"
+            logger.lifecycle("Downloading Architectury API jar from $url")
+            java.net.URL(url).openStream().use { input ->
+                targetFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+            logger.lifecycle("Saved Architectury API jar to ${targetFile.absolutePath}")
+        } else {
+            logger.lifecycle("${targetFile.name} already exists; skipping download")
+        }
+    }
 }
 
 data class McTarget(
@@ -62,6 +94,48 @@ val supportedTargets = mapOf(
     )
 )
 
+val createVersion_1_18_2: String by project
+val createVersion_1_20_1: String by project
+val createVersionMap = mapOf(
+    "1.18.2" to createVersion_1_18_2,
+    "1.20.1" to createVersion_1_20_1
+)
+val createJarMap = mapOf(
+    "1.18.2" to layout.projectDirectory.file("libs/create/create-1.18.2-0.5.1.f.jar")
+)
+
+val mtrLibDir = layout.projectDirectory.dir("libs/mtr3")
+val mtrJarNameMap = mapOf(
+    "1.16.5" to mapOf(
+        LoaderType.FABRIC to "MTR-fabric-1.16.5-3.2.2-hotfix-1-slim.jar",
+        LoaderType.FORGE to "MTR-forge-1.16.5-3.2.2-hotfix-1-slim.jar"
+    ),
+    "1.18.2" to mapOf(
+        LoaderType.FABRIC to "MTR-fabric-1.18.2-3.2.2-hotfix-1-slim.jar",
+        LoaderType.FORGE to "MTR-forge-1.18.2-3.2.2-hotfix-1-slim.jar"
+    ),
+    "1.20.1" to mapOf(
+        LoaderType.FABRIC to "MTR-fabric-1.20.1-3.2.2-hotfix-1-slim.jar",
+        LoaderType.FORGE to "MTR-forge-1.20.1-3.2.2-hotfix-2-slim.jar"
+    )
+)
+val mtrJarMap: Map<String, Map<LoaderType, RegularFile>> = mtrJarNameMap.mapValues { (_, loaders) ->
+    loaders.mapValues { (_, fileName) ->
+        mtrLibDir.file(fileName)
+    }
+}
+
+fun resolveMtrJar(version: String, loader: LoaderType): RegularFile {
+    val loaderMap = mtrJarMap[version]
+        ?: throw GradleException("No MTR mapping for Minecraft $version; add a jar under libs/mtr3/")
+    val jarFile = loaderMap[loader]
+        ?: throw GradleException("No MTR jar for loader $loader on MC $version in libs/mtr3/")
+    if (!jarFile.asFile.exists()) {
+        throw GradleException("Expected MTR jar ${jarFile.asFile.relativeTo(layout.projectDirectory.asFile)} to exist; please download it.")
+    }
+    return jarFile
+}
+
 val loaderProjects = listOf(
     LoaderProject("fabric-1.16.5", LoaderType.FABRIC, supportedTargets.getValue("1.16.5")),
     LoaderProject("fabric-1.18.2", LoaderType.FABRIC, supportedTargets.getValue("1.18.2")),
@@ -77,8 +151,10 @@ subprojects {
 
     repositories {
         mavenLocal()
+        maven("https://maven.architectury.dev/")
         maven("https://maven.fabricmc.net/")
         maven("https://maven.minecraftforge.net/")
+        maven("https://maven.createmod.net")
         mavenCentral()
     }
 
@@ -118,6 +194,9 @@ tasks.named("build") {
 fun Project.configureLoaderProject(config: LoaderProject) {
     evaluationDependsOn(":common")
     apply(plugin = "dev.architectury.loom")
+    apply(plugin = "com.github.johnrengelman.shadow")
+
+    val architecturyApiConfiguration = configurations.maybeCreate("architecturyApi")
 
     val archivesBaseName = rootProject.property("archivesBaseName") as String
     base.archivesName.set("$archivesBaseName-${config.loader.name.lowercase()}-${config.target.minecraftVersion}")
@@ -148,11 +227,35 @@ fun Project.configureLoaderProject(config: LoaderProject) {
         add("minecraft", "com.mojang:minecraft:${config.target.minecraftVersion}")
         add("mappings", loomExtension.officialMojangMappings())
         add("implementation", commonProject)
+        add("architecturyApi", files(architecturyJar).builtBy(downloadArchitecturyJar))
+        add("compileOnly", files(resolveMtrJar(config.target.minecraftVersion, config.loader)))
     }
 
     tasks.withType<Jar>().configureEach {
         dependsOn(commonProject.tasks.named("classes"))
         from(commonSources)
+    }
+
+    val shadowJar = tasks.named<ShadowJar>("shadowJar") {
+        archiveClassifier.set("shadow")
+        configurations.add(architecturyApiConfiguration)
+        relocate("dev.architectury", architecturyRelocationBase)
+        exclude("architectury.accessWidener")
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+        isZip64 = true
+    }
+
+    val architecturyContents = shadowJar.flatMap { jar ->
+        provider { zipTree(jar.archiveFile) }
+    }
+
+tasks.named<RemapJarTask>("remapJar") {
+        dependsOn(shadowJar)
+        from(architecturyContents)
+    }
+
+    tasks.withType<RemapJarTask>().configureEach {
+        isZip64 = true
     }
 
     when (config.loader) {
@@ -180,6 +283,21 @@ fun Project.configureFabricProject(config: LoaderProject) {
 fun Project.configureForgeProject(config: LoaderProject) {
     dependencies {
         add("forge", "net.minecraftforge:forge:${config.target.forgeVersion}")
+        val mcVersion = config.target.minecraftVersion
+        val localJar = createJarMap[mcVersion]
+        if (localJar != null) {
+            if (!localJar.asFile.exists()) {
+                throw GradleException("请把 Create 1.18.2 版本 jar (create-1.18.2-0.5.1.f.jar) 放到 libs/")
+            }
+            add("modImplementation", files(localJar))
+        } else {
+            createVersionMap[mcVersion]?.let { createVersion ->
+                add(
+                    "modImplementation",
+                    "com.simibubi.create:create-${mcVersion}:$createVersion:slim"
+                )
+            }
+        }
     }
 
     configurations.maybeCreate("developmentForge").extendsFrom(configurations.getByName("runtimeClasspath"))
