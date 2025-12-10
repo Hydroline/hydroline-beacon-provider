@@ -12,6 +12,7 @@ import com.hydroline.beacon.provider.mtr.MtrModels.StationTimetable;
 import com.hydroline.beacon.provider.mtr.MtrModels.TrainStatus;
 import com.hydroline.beacon.provider.mtr.MtrQueryGateway;
 import com.hydroline.beacon.provider.mtr.MtrRailwayDataAccess;
+import com.hydroline.beacon.provider.mtr.MtrSnapshotCache;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -28,9 +29,12 @@ import org.slf4j.LoggerFactory;
 public final class ForgeMtrQueryGateway implements MtrQueryGateway {
     private static final Logger LOGGER = LoggerFactory.getLogger(ForgeMtrQueryGateway.class);
     private final Supplier<MinecraftServer> serverSupplier;
+    private static final long SNAPSHOT_CACHE_TTL_MILLIS = 1000L;
+    private final MtrSnapshotCache snapshotCache;
 
     public ForgeMtrQueryGateway(Supplier<MinecraftServer> serverSupplier) {
         this.serverSupplier = serverSupplier;
+        this.snapshotCache = new MtrSnapshotCache(this::captureSnapshotsNow, SNAPSHOT_CACHE_TTL_MILLIS);
     }
 
     @Override
@@ -101,9 +105,6 @@ public final class ForgeMtrQueryGateway implements MtrQueryGateway {
 
     @Override
     public List<TrainStatus> fetchRouteTrains(String dimensionId, long routeId) {
-        if (routeId <= 0) {
-            return Collections.emptyList();
-        }
         List<MtrDimensionSnapshot> snapshots = captureSnapshots();
         return findSnapshot(snapshots, dimensionId)
             .map(snapshot -> MtrDataMapper.buildRouteTrains(snapshot, routeId))
@@ -112,9 +113,6 @@ public final class ForgeMtrQueryGateway implements MtrQueryGateway {
 
     @Override
     public List<TrainStatus> fetchDepotTrains(String dimensionId, long depotId) {
-        if (depotId <= 0) {
-            return Collections.emptyList();
-        }
         List<MtrDimensionSnapshot> snapshots = captureSnapshots();
         return findSnapshot(snapshots, dimensionId)
             .map(snapshot -> MtrDataMapper.buildDepotTrains(snapshot, depotId))
@@ -122,6 +120,10 @@ public final class ForgeMtrQueryGateway implements MtrQueryGateway {
     }
 
     private List<MtrDimensionSnapshot> captureSnapshots() {
+        return snapshotCache.get();
+    }
+
+    private List<MtrDimensionSnapshot> captureSnapshotsNow() {
         MinecraftServer server = serverSupplier.get();
         if (server == null) {
             return Collections.emptyList();

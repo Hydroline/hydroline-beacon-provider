@@ -39,3 +39,22 @@ node test-actions.js
 - 自动根据 `mtr:list_network_overview`/`mtr:list_stations`/`mtr:list_depots` 的返回值挑选示例路线/站点/车厂，继续调用 `mtr:get_route_detail`、`mtr:get_route_trains`、`mtr:get_station_timetable`、`mtr:get_depot_trains` 等。
 
 如需调试，可直接查看控制台日志或 `output` 中的 JSON 文件。脚本默认在 15 秒无响应时中止对应请求，你可以通过 `REQUEST_TIMEOUT_MS` 进行调整。
+
+## 导出全部路线页面
+
+如需对照网站的线路详情页，可运行新增的 `test-route-pages.js`：
+
+```bash
+cd tests
+node test-route-pages.js
+# 或使用 pnpm test:routes
+```
+
+该脚本将：
+
+- 读取 `.env`，连接与 `test-actions.js` 相同的 Provider；
+- 解析 `mtr:list_network_overview` 中的全部路线 ID（支持 64 位长整型），逐一调用 `mtr:get_route_detail` 与 `mtr:get_route_trains`；
+- 将结果写入 `output/routes/mtr_route_<routeId>_{detail,trains}.json`，同时生成 `routes_index.json` 方便定位；
+- 可通过 `ROUTES_OUTPUT_DIR` 环境变量自定义输出目录。
+
+因此只需运行一次，就能拿到所有线路的原始 JSON，避免因 JS Number 精度丢失而出现“Route not found”等 404。

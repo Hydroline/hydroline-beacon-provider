@@ -192,7 +192,7 @@ public final class MtrDataMapper {
             return Collections.emptyList();
         }
         List<TrainStatus> trains = collectTrainStatuses(context);
-        if (routeId <= 0 || trains.isEmpty()) {
+        if (routeId == 0 || trains.isEmpty()) {
             return trains;
         }
         return trains.stream()
@@ -206,7 +206,7 @@ public final class MtrDataMapper {
             return Collections.emptyList();
         }
         List<TrainStatus> trains = collectTrainStatuses(context);
-        if (depotId <= 0 || trains.isEmpty()) {
+        if (depotId == 0 || trains.isEmpty()) {
             return trains;
         }
         return trains.stream()
@@ -273,7 +273,7 @@ public final class MtrDataMapper {
 
     private static List<RouteNode> buildRouteNodes(DimensionContext context, Route route) {
         if (route.platformIds == null || route.platformIds.isEmpty()) {
-            return Collections.emptyList();
+            return buildStationRouteNodes(context, route);
         }
         List<RouteNode> nodes = new ArrayList<>(route.platformIds.size());
         long sequence = 0;
@@ -286,6 +286,33 @@ public final class MtrDataMapper {
             NodeInfo nodeInfo = buildNodeInfoFromSavedRail(platform, station != null ? station.id : null, true);
             if (nodeInfo != null) {
                 nodes.add(new RouteNode(nodeInfo, "PLATFORM", sequence++));
+            }
+        }
+        List<Long> stationOrder = context.routeStationOrder.get(route.id);
+        if ((stationOrder != null && stationOrder.size() > nodes.size()) || nodes.size() <= 2) {
+            List<RouteNode> fallback = buildStationRouteNodes(context, route);
+            if (!fallback.isEmpty()) {
+                return fallback;
+            }
+        }
+        return nodes.isEmpty() ? buildStationRouteNodes(context, route) : nodes;
+    }
+
+    private static List<RouteNode> buildStationRouteNodes(DimensionContext context, Route route) {
+        List<Long> stationOrder = context.routeStationOrder.get(route.id);
+        if (stationOrder == null || stationOrder.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<RouteNode> nodes = new ArrayList<>(stationOrder.size());
+        long sequence = 0;
+        for (Long stationId : stationOrder) {
+            Station station = context.stations.get(stationId);
+            if (station == null) {
+                continue;
+            }
+            NodeInfo nodeInfo = buildNodeInfoFromStation(station);
+            if (nodeInfo != null) {
+                nodes.add(new RouteNode(nodeInfo, "STATION", sequence++));
             }
         }
         return nodes;
@@ -367,7 +394,7 @@ public final class MtrDataMapper {
 
     private static TrainStatus toTrainStatus(DimensionContext context, TrainServer train, Long depotId) {
         long routeId = readLong(TRAIN_SERVER_ROUTE_ID, train);
-        if (routeId <= 0) {
+        if (routeId == 0) {
             return null;
         }
         List<Long> stationOrder = context.routeStationOrder.get(routeId);
@@ -510,6 +537,20 @@ public final class MtrDataMapper {
             return null;
         }
         return new Bounds(nodeInfo.getX(), nodeInfo.getY(), nodeInfo.getZ(), nodeInfo.getX(), nodeInfo.getY(), nodeInfo.getZ());
+    }
+
+    private static NodeInfo buildNodeInfoFromStation(Station station) {
+        if (station == null) {
+            return null;
+        }
+        Bounds bounds = buildBoundsFromArea(station);
+        if (bounds == null) {
+            return null;
+        }
+        int centerX = bounds.getMinX() + (bounds.getMaxX() - bounds.getMinX()) / 2;
+        int centerY = bounds.getMinY();
+        int centerZ = bounds.getMinZ() + (bounds.getMaxZ() - bounds.getMinZ()) / 2;
+        return new NodeInfo(centerX, centerY, centerZ, "STATION", false, station.id);
     }
 
     private static NodeInfo buildNodeInfoFromSavedRail(SavedRailBase rail, Long stationId, boolean platformSegment) {

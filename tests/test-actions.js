@@ -4,7 +4,10 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import JSONbig from "json-bigint";
+
+const JSON_EXT = JSONbig({ storeAsString: true });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,7 +27,7 @@ const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || "15000");
 const OUTPUT_DIR = path.resolve(process.env.OUTPUT_DIR || path.join(__dirname, "output"));
 const SAMPLE_LIMIT = Number(process.env.SAMPLE_LIMIT || "5");
 
-const ACTION_PAYLOAD_BASE = (dimension) => (dimension ? { dimension } : {});
+export const ACTION_PAYLOAD_BASE = (dimension) => (dimension ? { dimension } : {});
 
 async function main() {
   console.log(`Connecting to ${HOST}:${PORT} ...`);
@@ -167,7 +170,7 @@ async function main() {
   }
 }
 
-class GatewayClient {
+export class GatewayClient {
   constructor({ host, port, token, timeoutMs }) {
     this.host = host;
     this.port = port;
@@ -272,7 +275,7 @@ class GatewayClient {
     if (attachConnection && this.connectionId) {
       envelope.connectionId = this.connectionId;
     }
-    const json = JSON.stringify(envelope);
+    const json = JSON_EXT.stringify(envelope);
     const frame = Buffer.alloc(4 + Buffer.byteLength(json));
     frame.writeUInt32BE(Buffer.byteLength(json), 0);
     frame.write(json, 4, "utf8");
@@ -295,7 +298,7 @@ class GatewayClient {
   _handleFrame(frameBuffer) {
     let envelope;
     try {
-      envelope = JSON.parse(frameBuffer.toString("utf8"));
+      envelope = JSON_EXT.parse(frameBuffer.toString("utf8"));
     } catch (err) {
       console.error("Invalid frame JSON:", err.message);
       return;
@@ -561,7 +564,7 @@ function mergeDepots(primary, secondary) {
   return merged;
 }
 
-function safeId(preferredValue, fallbackValue, label) {
+export function safeId(preferredValue, fallbackValue, label) {
   const raw =
     preferredValue !== undefined && preferredValue !== null && preferredValue !== ""
       ? preferredValue
@@ -572,18 +575,34 @@ function safeId(preferredValue, fallbackValue, label) {
   return String(raw).replace(/[^0-9A-Za-z_\-]/g, "_");
 }
 
-function normalizeLong(value) {
-  if (value === undefined || value === null || value === "") {
+export function normalizeLong(value) {
+  if (value === undefined || value === null) {
     return undefined;
   }
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
+  if (typeof value === "bigint") {
+    return value === 0n ? undefined : value.toString();
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value === 0) {
+      return undefined;
+    }
+    return Math.trunc(value).toString();
+  }
+  const text = String(value).trim();
+  if (!text) {
     return undefined;
   }
-  return parsed;
+  if (!/^[+-]?\d+$/.test(text)) {
+    return undefined;
+  }
+  const normalized = text.startsWith("+") ? text.slice(1) : text;
+  if (normalized === "0") {
+    return undefined;
+  }
+  return normalized;
 }
 
-function resolveDimensionEntry(overview, dimension) {
+export function resolveDimensionEntry(overview, dimension) {
   const dimensions = ensureArray(overview?.payload?.dimensions);
   return (
     dimensions.find((entry) => !dimension || entry?.dimension === dimension) ||
@@ -598,7 +617,7 @@ async function captureJson(fileName, promise) {
   return data;
 }
 
-async function prepareOutputDir(dir) {
+export async function prepareOutputDir(dir) {
   if (fs.existsSync(dir)) {
     const entries = await fs.promises.readdir(dir);
     await Promise.all(entries.map((entry) => fs.promises.rm(path.join(dir, entry), { recursive: true, force: true })));
@@ -607,7 +626,7 @@ async function prepareOutputDir(dir) {
   }
 }
 
-async function writeJson(target, data) {
+export async function writeJson(target, data) {
   const payload = {
     timestamp: new Date().toISOString(),
     data: data === undefined ? null : data,
@@ -617,7 +636,7 @@ async function writeJson(target, data) {
   console.log(`Wrote ${target}`);
 }
 
-function ensureArray(value) {
+export function ensureArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
@@ -631,17 +650,19 @@ function randomRequestId() {
   return result;
 }
 
-function envLong(name) {
+export function envLong(name) {
   const value = process.env[name];
-  if (!value) return undefined;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
+  if (value === undefined || value === "") {
+    return undefined;
+  }
+  const normalized = normalizeLong(value);
+  if (!normalized) {
     throw new Error(`${name} must be numeric`);
   }
-  return parsed;
+  return normalized;
 }
 
-function loadDotEnv(filePath) {
+export function loadDotEnv(filePath) {
   if (!fs.existsSync(filePath)) {
     return;
   }
@@ -663,7 +684,17 @@ function loadDotEnv(filePath) {
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exitCode = 1;
-});
+const ENTRYPOINT_URL = (() => {
+  try {
+    return pathToFileURL(process.argv[1] ?? "").href;
+  } catch {
+    return "";
+  }
+})();
+
+if (import.meta.url === ENTRYPOINT_URL) {
+  main().catch((err) => {
+    console.error(err);
+    process.exitCode = 1;
+  });
+}

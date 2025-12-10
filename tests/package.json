@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:actions": "node test-actions.js"
+    "test:actions": "node test-actions.js",
+    "test:routes": "node test-route-pages.js"
+  },
+  "dependencies": {
+    "json-bigint": "^1.0.0"
   }
 }

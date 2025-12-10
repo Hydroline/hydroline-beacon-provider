@@ -32,8 +32,8 @@ public final class MtrGetDepotTrainsActionHandler extends AbstractMtrActionHandl
         } catch (NumberFormatException | UnsupportedOperationException ex) {
             return invalidPayload(message.getRequestId(), "depotId must be a number");
         }
-        if (depotId <= 0) {
-            return invalidPayload(message.getRequestId(), "depotId must be positive");
+        if (depotId == 0) {
+            return invalidPayload(message.getRequestId(), "depotId must be non-zero");
         }
         JsonObject responsePayload = new JsonObject();
         responsePayload.addProperty("dimension", dimension);
