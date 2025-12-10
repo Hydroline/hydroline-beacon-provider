@@ -41,6 +41,10 @@ public interface MtrQueryGateway {
 
     List<TrainStatus> fetchDepotTrains(String dimensionId, long depotId);
 
+    default List<MtrDimensionSnapshot> fetchSnapshots() {
+        return Collections.emptyList();
+    }
+
     MtrQueryGateway UNAVAILABLE = new MtrQueryGateway() {
         @Override
         public boolean isReady() {

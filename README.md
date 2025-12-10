@@ -20,3 +20,6 @@ root
 - Everything: `./gradlew buildAllTargets`
 
 Each loader jar automatically bundles the compiled `common` classes/resources, so deployables remain self-contained.
+
+## actions
+- Provider 端现在仅保留 `beacon:ping` 与 `mtr:get_railway_snapshot` 两个 action，所有 MTR 结构数据由 Bukkit 端直接扫描 `world/mtr`，Provider 只负责将 `RailwayData` 快照序列化后原封返回。详细协议参考 `docs/Beacon Actions.md`。

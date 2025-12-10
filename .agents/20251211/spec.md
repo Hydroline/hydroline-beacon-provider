@@ -1,23 +1,26 @@
 # 研究记录（2025-12-11）
 
-## RailwayData 快照内容
+## RailwayData 就是我们要的数据源
 
-- `mtr.data.RailwayData`（可在 `libs/mtr3/**/MTR-forge-1.18.2-3.2.2-hotfix-1-slim.jar` 中查看）里包含：
-  - 完整的 `rails` 映射结构（`Map<BlockPos, Map<BlockPos, Rail>>`），与 `world/mtr/<namespace>/<dimension>/rails` 下持久化的数据一一对应；
-  - `stations`、`platforms`、`routes`、`depots`、`sidings`、`signalBlocks` 等集合，以及 `RailwayDataRouteFinderModule`、`RailwayDataDriveTrainModule` 等模块；
-  - `signalBlocks` 通过 UUID 关联到具体轨道，足够拼出精细轨迹几何。
+- `mtr.data.RailwayData`（见 `libs/mtr3/MTR-forge-1.18.2-3.2.2-hotfix-1-slim.jar`）持有 `stations`、`platforms`、`routes`、`depots`、`sidings`、`signalBlocks`、`rails` 等集合，所需全部拓扑/动态信息都能从这个类及其子集提取，完全在内存里，所以不必再直接扫 `world/mtr`；
+- `RailwayData.writeMessagePackDataset` 会把每个 `SerializedDataBase`（如 `Station`/`Platform`/`Route`/`Depot`）的字段按 `id` 写入 `MessagePack`，然后写到对应的数组里，因此快照里既有 `stations` 数组、又有 `6840141479544014000` 这样的数字键。客户端可任选任意一处读取字段；
+- `Pos` 所有的坐标为整数 block 位置，对应 `AreaBase.corner1/corner2` 与 `SavedRailBase` 里的 `BlockPos`，平台两端 `pos_1` / `pos_2` 直接就是 `BlockPos#asLong()` 编码，搭配 `BlockPos.of(long)` 或 `BlockPosEncoding` 可还原；
+- `signalBlocks` 里每个 block 也包含与 `rails`（`Map<BlockPos, Map<BlockPos, Rail>>`）的关联，可以实时重排轨道节点，`nodes` 并不单独存储，只要连接这两张表即可重建轨迹；
+- 由于 `RailwayData` 提供的 `routes.platformIds` 本身就是 `routeStationOrder`（MTR 中由 `RailwayDataRouteFinderModule` 维护的顺序），单独去解析 `routeStationOrder` 这种缓存就多余。
 
-- `NodeInfo`（由 `MtrDataMapper.collectNodes` 导出）并不存成独立文件，而是运行时根据 `rails` 端点及平台/站点元数据聚合而来，因此每个节点的原始坐标已经存在于 `RailwayData.rails` 中，重新构建节点图只是对这张映射的确定性遍历。
+## 与 world/mtr 文件的关系
 
-## 对 Beacon Provider 的影响
+- `world/mtr/<dimension>` 下的 MessagePack、logs、rails 目录等，本质是 `RailwayData` 的持久化快照；我们的 Provider 只需要通过 `RailwayData` 读实时状态后再序列化，不需硬读世界存档，降低重算风险；
+- `signal-blocks` 目录可以解出每个 Block 所属路段，便于 Leaflet 精细打点；它与 `RailwayData.signalBlocks` 结构一致（由 `SignalBlock` 记录 `railType`、`platformSegment`、`nodes` 列表），`signal-blocks` 内容即为 MTR 写出的 MessagePack 反序列化结果，足够用于精细地铁图；
+- 如果需要离线分析，Bukkit 端仍然可以周期性扫描 `world/mtr`；Provider 只保留动态接口（实时列车位置、发车信息），静态结构由 Bukkit 缓存/对比，避免重复扫描。
 
-- 既然 `RailwayData` 就是完整的轨道拓扑与运行时状态的来源，我们可以直接把它当作真正的“数据源”，不再需要频繁读取 `world/mtr`：
-  1. 可直接读取 `railwayData.rails` 及其相关集合（只读，无需反复调用 `RailwayData#getInstance`）并序列化，而不是扫描持久化文件；
-  2. `world/mtr` 下的目录其实只是这份内存数据的 MessagePack 备份，适合离线分析但非必须；
-  3. 节点可以在线根据 `signalBlocks` + `rails` 重新计算，Leaflet/Beacon 可以用这些数据重建精细轨迹，不依赖保存的 `nodes` 输出。
+## 快照数据量估算
 
-## 下一步研究方向
+- 目前 `tests/output/mtr_railway_snapshot_minecraft_overworld.msgpack` 大小约 3.5 MB，可见单维度的 `RailwayData` 在 MessagePack 形式下含有 rails、signalBlocks、stations、platforms、routes、depots 等字段，参数量远超过只包含 station/platform/route 的 JSON；
+- 这个体积中，`rails` 是主要的膨胀项：`RailwayData` 维护 `Map<BlockPos, Map<BlockPos, Rail>>`，每条 rail 还包含 node 坐标（`RailwayDataRouteFinderModule` 访问）和 `signalBlocks`，决定了我们要传输的几何复杂度；
+- 由于 Provider 只输出 Base64 的 MessagePack，而客户端可通过解码后缓存数据，实际流水量可控制在单维度几 MB，`last_deployed` 可用于判断是否需要重新请求。
 
-1. 定义一个“快照提取器”，直接读取 `RailwayData` 字段（只读）并构建静态拓扑快照，避免触发重计算；
-2. 评估是否继续保留 `world/mtr` 作为版本化的持久层，还是直接将这些快照自己序列化（可参考 `tools/mtr-world-dump.js` 的逻辑但由实时 `RailwayData` 驱动）；
-3. 将实时需求（时刻表 / 列车位置）与只读访问对齐：让 Provider 继续处理动态接口，Beacon 则消费缓存下来的静态快照。
+## 结论与后续
+
+- 既然 `RailwayData` 自带完整节点结构（rails + signalBlocks），我们可以放心把 Provider 里剩余的 `mtr` 模块仅用作读取 `RailwayData`、序列化 MessagePack 并返回，Beacon/前端负责还原与缓存；
+- `.agents/20251211/todo.md` 里我会把上述工作拆成具体步骤，保持原有基础设施（Netty、config、tests）不动，只替换 Action。

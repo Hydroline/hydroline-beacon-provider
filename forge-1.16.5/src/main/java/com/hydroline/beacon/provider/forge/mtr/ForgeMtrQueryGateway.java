@@ -119,6 +119,11 @@ public final class ForgeMtrQueryGateway implements MtrQueryGateway {
             .orElseGet(Collections::emptyList);
     }
 
+    @Override
+    public List<MtrDimensionSnapshot> fetchSnapshots() {
+        return captureSnapshots();
+    }
+
     private List<MtrDimensionSnapshot> captureSnapshots() {
         return snapshotCache.get();
     }
