@@ -17,29 +17,40 @@ const PORT = Number(process.env.PROVIDER_PORT || "28545");
 const TOKEN = process.env.PROVIDER_TOKEN || "change-me";
 const DIMENSION = process.env.PROVIDER_MTR_DIMENSION || "minecraft:overworld";
 const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || "15000");
-const OUTPUT_DIR = path.resolve(process.env.OUTPUT_DIR || path.join(__dirname, "output"));
+const OUTPUT_DIR = path.resolve(
+  process.env.OUTPUT_DIR || path.join(__dirname, "output")
+);
 const ACTION_NAME = "mtr:get_railway_snapshot";
 const ROUTE_ID = Number(process.env.PROVIDER_MTR_ROUTE_ID || "0");
-const STATION_ID = process.env.PROVIDER_MTR_STATION_ID
-  ? Number(process.env.PROVIDER_MTR_STATION_ID)
-  : null;
-const STATION_PLATFORM_ID = process.env.PROVIDER_MTR_PLATFORM_ID
-  ? Number(process.env.PROVIDER_MTR_PLATFORM_ID)
-  : null;
-const DEPOT_ID = process.env.PROVIDER_MTR_DEPOT_ID ? Number(process.env.PROVIDER_MTR_DEPOT_ID) : 0;
+const STATION_ID = parseEnvLong(process.env.PROVIDER_MTR_STATION_ID);
+const STATION_PLATFORM_ID = parseEnvLong(process.env.PROVIDER_MTR_PLATFORM_ID);
+const DEPOT_ID = process.env.PROVIDER_MTR_DEPOT_ID
+  ? Number(process.env.PROVIDER_MTR_DEPOT_ID)
+  : 0;
 
 async function main() {
   console.log(`Connecting to ${HOST}:${PORT} ...`);
   await prepareOutputDir(OUTPUT_DIR);
-  const client = new GatewayClient({ host: HOST, port: PORT, token: TOKEN, timeoutMs: REQUEST_TIMEOUT_MS });
+  const client = new GatewayClient({
+    host: HOST,
+    port: PORT,
+    token: TOKEN,
+    timeoutMs: REQUEST_TIMEOUT_MS,
+  });
   try {
     await client.connect();
     const ping = await client.request("beacon:ping", { echo: "tests" });
     await writeJson(path.join(OUTPUT_DIR, "beacon_ping.json"), ping);
 
-    const response = await client.request(ACTION_NAME, DIMENSION ? { dimension: DIMENSION } : {});
+    const response = await client.request(
+      ACTION_NAME,
+      DIMENSION ? { dimension: DIMENSION } : {}
+    );
     const slug = dimensionToSlug(DIMENSION || "all");
-    const responseTarget = path.join(OUTPUT_DIR, `mtr_railway_snapshot_${slug}.json`);
+    const responseTarget = path.join(
+      OUTPUT_DIR,
+      `mtr_railway_snapshot_${slug}.json`
+    );
     await writeJson(responseTarget, response);
 
     const snapshots = Array.isArray(response?.payload?.snapshots)
@@ -69,7 +80,9 @@ async function main() {
         );
         await writeJson(jsonTarget, normalized);
       } catch (decodeErr) {
-        console.warn(`Failed to decode snapshot for ${dimensionId}: ${decodeErr.message}`);
+        console.warn(
+          `Failed to decode snapshot for ${dimensionId}: ${decodeErr.message}`
+        );
       }
     }
 
@@ -77,7 +90,7 @@ async function main() {
     await writeRouteTrainsOutput(client, dimensionSlug);
     await writeStationScheduleOutput(client, dimensionSlug);
     await writeDepotTrainsOutput(client, dimensionSlug);
-    await writeAllStationSchedulesOutput(client, dimensionSlug);
+    // await writeAllStationSchedulesOutput(client, dimensionSlug);
     console.log(`Done. Files written to ${OUTPUT_DIR}`);
   } catch (err) {
     console.error("Test run failed:", err.message);
@@ -86,7 +99,6 @@ async function main() {
     client.close();
   }
 }
-
 
 async function writeRouteTrainsOutput(client, dimensionSlug) {
   const payload = {
@@ -134,7 +146,10 @@ async function writeDepotTrainsOutput(client, dimensionSlug) {
   }
   const response = await client.request("mtr:get_depot_trains", payload);
   const suffix = DEPOT_ID > 0 ? `depot_${DEPOT_ID}` : "all";
-  const target = path.join(OUTPUT_DIR, `mtr_depot_trains_${dimensionSlug}_${suffix}.json`);
+  const target = path.join(
+    OUTPUT_DIR,
+    `mtr_depot_trains_${dimensionSlug}_${suffix}.json`
+  );
   await writeJson(target, response);
 }
 
@@ -143,8 +158,14 @@ async function writeAllStationSchedulesOutput(client, dimensionSlug) {
   if (DIMENSION) {
     payload.dimension = DIMENSION;
   }
-  const response = await client.request("mtr:get_all_station_schedules", payload);
-  const target = path.join(OUTPUT_DIR, `mtr_all_station_schedules_${dimensionSlug}.json`);
+  const response = await client.request(
+    "mtr:get_all_station_schedules",
+    payload
+  );
+  const target = path.join(
+    OUTPUT_DIR,
+    `mtr_all_station_schedules_${dimensionSlug}.json`
+  );
   await writeJson(target, response);
 }
 export class GatewayClient {
@@ -160,14 +181,21 @@ export class GatewayClient {
 
   connect() {
     return new Promise((resolve, reject) => {
-      this.socket = net.createConnection({ host: this.host, port: this.port }, () => {
-        this._sendEnvelope("handshake", {
-          protocolVersion: 1,
-          clientId: this.clientId,
-          token: this.token,
-          capabilities: ["actions"],
-        }, false);
-      });
+      this.socket = net.createConnection(
+        { host: this.host, port: this.port },
+        () => {
+          this._sendEnvelope(
+            "handshake",
+            {
+              protocolVersion: 1,
+              clientId: this.clientId,
+              token: this.token,
+              capabilities: ["actions"],
+            },
+            false
+          );
+        }
+      );
 
       this.socket.on("data", (chunk) => this._onData(chunk));
       this.socket.on("error", (err) => {
@@ -312,7 +340,6 @@ export class GatewayClient {
   }
 }
 
-
 async function prepareOutputDir(dir) {
   if (fs.existsSync(dir)) {
     await fs.promises.rm(dir, { recursive: true, force: true });
@@ -326,7 +353,11 @@ async function writeJson(target, data) {
     data: data === undefined ? null : data,
   };
   await fs.promises.mkdir(path.dirname(target), { recursive: true });
-  await fs.promises.writeFile(target, JSON.stringify(payload, null, 2) + "\n", "utf8");
+  await fs.promises.writeFile(
+    target,
+    JSON.stringify(payload, null, 2) + "\n",
+    "utf8"
+  );
   console.log(`Wrote ${target}`);
 }
 
@@ -335,6 +366,12 @@ function dimensionToSlug(value) {
 }
 
 function normalizeForJson(value) {
+  if (typeof value === "bigint") {
+    return value.toString();
+  }
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) ? value : value.toString();
+  }
   if (value instanceof Map) {
     return {
       __type: "Map",
@@ -393,6 +430,14 @@ function randomRequestId() {
     result += alphabet[bytes[i] % alphabet.length];
   }
   return result;
+}
+
+function parseEnvLong(value) {
+  if (value == null) {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
 }
 
 main().catch((err) => {
